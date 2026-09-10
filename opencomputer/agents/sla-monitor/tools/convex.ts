@@ -1,22 +1,7 @@
-import {
-  bearer,
-  defineConnection,
-  defineTool,
-  useSecret,
-} from "@opencomputer/agent";
-import slaAlerts from "../../../outboxes/sla-alerts.js";
-
-// Replace this literal with the .convex.site hostname printed by `convex dev`.
-// OpenComputer deliberately compiles connection origins into the deployment.
-const convex = defineConnection({
-  id: "sla-store",
-  origin: "https://replace-with-your-deployment.convex.site",
-  methods: ["POST"],
-  pathPrefix: "/internal/sla/",
-  headers: {
-    Authorization: bearer(useSecret("CONVEX_SERVICE_TOKEN")),
-  },
-});
+import { defineTool } from "@opencomputer/agent";
+import { SLACK_ALERT_CHANNEL_ID } from "../config.js";
+import convex from "../connections/convex.js";
+import slack from "../connections/slack.js";
 
 type Candidate = {
   id: string;
@@ -54,6 +39,16 @@ async function post<T>(
     );
   }
   return response.json() as Promise<T>;
+}
+
+async function stableClientMessageId(value: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+  ).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
 export const claimSlaCandidates = defineTool({
@@ -128,25 +123,47 @@ export const publishSlaBreach = defineTool({
     additionalProperties: false,
   },
   async run({ input, signal }) {
-    const publication = await slaAlerts.publish({
-      type: "slack.sla.breached",
-      content: {
-        title: "Slack Connect response SLA breached",
-        body: String(input.summary),
-      },
-      idempotencyKey: String(input.notificationKey),
+    if (!/^([CGD])[A-Z0-9]+$/.test(SLACK_ALERT_CHANNEL_ID)) {
+      throw new Error(
+        "Set SLACK_ALERT_CHANNEL_ID in the agent config before publishing alerts.",
+      );
+    }
+    const notificationKey = String(input.notificationKey);
+    const response = await slack.fetch("/api/chat.postMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        channel: SLACK_ALERT_CHANNEL_ID,
+        text: `*Slack Connect response SLA breached*\n${String(input.summary)}`,
+        client_msg_id: await stableClientMessageId(notificationKey),
+        unfurl_links: false,
+        unfurl_media: false,
+      }),
+      signal,
     });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      channel?: string;
+      ts?: string;
+    };
+    if (!response.ok || !result.ok || !result.channel || !result.ts) {
+      throw new Error(
+        `Slack chat.postMessage failed: ${result.error ?? response.status}`,
+      );
+    }
+    const outboxItemId = `slack:${result.channel}:${result.ts}`;
     await post(
       "/internal/sla/mark-notified",
       {
         candidateId: String(input.candidateId),
         leaseToken: String(input.leaseToken),
-        notificationKey: String(input.notificationKey),
-        outboxItemId: publication.id,
+        notificationKey,
+        outboxItemId,
         rationale: String(input.rationale),
       },
       signal,
     );
-    return { status: publication.status, outboxItemId: publication.id };
+    return { status: "delivered", outboxItemId };
   },
 });

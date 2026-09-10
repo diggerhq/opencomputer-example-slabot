@@ -3,3 +3,5 @@ node_modules/
 opencomputer/.env.local
 .convex/
 convex/_generated/
+.opencomputer/
+opencomputer/agents/*/.opencomputer/

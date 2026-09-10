@@ -9,6 +9,7 @@ import {
   normalizeSlackMessage,
   parseSlackEventCallback,
   slackEventForStorage,
+  slackTestOverride,
 } from "../src/slack.js";
 import {
   appendEvidence,
@@ -120,13 +121,25 @@ export const hydrate = internalAction({
         .filter(Boolean),
     );
     const enrolled = enrolledIds.has("*") || enrolledIds.has(message.channelId);
+    const commaSeparatedSet = (value: string | undefined) =>
+      new Set(
+        (value ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      );
+    const testOverride = slackTestOverride(message, {
+      enabled: process.env.SLACK_TEST_OVERRIDES === "true",
+      channelIds: commaSeparatedSet(process.env.SLACK_TEST_CHANNEL_IDS),
+      userIds: commaSeparatedSet(process.env.SLACK_TEST_ACTOR_USER_IDS),
+    });
     const responseMinutes = Number(process.env.SLA_RESPONSE_MINUTES ?? "60");
     if (!Number.isSafeInteger(responseMinutes) || responseMinutes < 1) {
       throw new Error("SLA_RESPONSE_MINUTES must be a positive integer");
     }
     await ctx.runMutation(internal.slack.recordHydratedMessage, {
       eventId: args.eventId,
-      message,
+      message: testOverride?.message ?? message,
       channel: {
         name: conversation.channel.name,
         isExternalShared: conversation.channel.is_ext_shared === true,
@@ -135,6 +148,7 @@ export const hydrate = internalAction({
         enrolled,
       },
       userTeamId: user.user.team_id ?? "unknown",
+      testDirection: testOverride?.direction,
       responseMinutes,
       now: Date.now(),
     });
@@ -177,6 +191,9 @@ export const recordHydratedMessage = internalMutation({
       enrolled: v.boolean(),
     }),
     userTeamId: v.string(),
+    testDirection: v.optional(
+      v.union(v.literal("external"), v.literal("internal")),
+    ),
     responseMinutes: v.number(),
     now: v.number(),
   },
@@ -222,14 +239,17 @@ export const recordHydratedMessage = internalMutation({
     if (currentUser) await ctx.db.patch(currentUser._id, userRecord);
     else await ctx.db.insert("slackUsers", userRecord);
 
-    if (
-      !args.channel.isExternalShared ||
-      !args.channel.isMember ||
-      !args.channel.enrolled
-    ) {
+    const ignoredReason = !args.channel.isMember
+      ? "bot_not_channel_member"
+      : !args.channel.enrolled
+        ? "conversation_not_enrolled"
+        : !args.channel.isExternalShared && args.testDirection === undefined
+          ? "conversation_not_external_shared"
+          : null;
+    if (ignoredReason) {
       await ctx.db.patch(event._id, {
         normalizedAt: args.now,
-        ignoredReason: "conversation_not_enrolled",
+        ignoredReason,
       });
       return;
     }
@@ -248,6 +268,10 @@ export const recordHydratedMessage = internalMutation({
     if (!Number.isFinite(sentAt)) {
       throw new Error("Invalid Slack message timestamp");
     }
+    const messageIsInternal =
+      args.testDirection === undefined
+        ? userRecord.isInternal
+        : args.testDirection === "internal";
     const evidence = {
       messageTs: args.message.messageTs,
       sentAt,
@@ -255,7 +279,7 @@ export const recordHydratedMessage = internalMutation({
         ? sentAt <= currentCandidate.deadlineAt
         : true,
       userId: args.message.userId,
-      direction: userRecord.isInternal
+      direction: messageIsInternal
         ? ("internal" as const)
         : ("external" as const),
       text: args.message.text,
@@ -264,7 +288,7 @@ export const recordHydratedMessage = internalMutation({
       await ctx.db.patch(currentCandidate._id, {
         evidence: appendEvidence(currentCandidate.evidence, evidence),
       });
-    } else if (!userRecord.isInternal) {
+    } else if (!messageIsInternal) {
       const openedAt = sentAt;
       const key = candidateKey({
         installationTeamId: args.message.installationTeamId,

@@ -16,6 +16,11 @@ export type SlackMessage = {
   text: string;
 };
 
+export type SlackTestOverride = {
+  direction: "external" | "internal";
+  message: SlackMessage;
+};
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -76,6 +81,29 @@ export function normalizeSlackMessage(
     messageTs,
     userId,
     text: text.slice(0, 8_000),
+  };
+}
+
+export function slackTestOverride(
+  message: SlackMessage,
+  config: {
+    enabled: boolean;
+    channelIds: ReadonlySet<string>;
+    userIds: ReadonlySet<string>;
+  },
+): SlackTestOverride | null {
+  if (
+    !config.enabled ||
+    !config.channelIds.has(message.channelId) ||
+    !config.userIds.has(message.userId)
+  ) {
+    return null;
+  }
+  const match = /^(customer|team):\s*(.+)$/is.exec(message.text);
+  if (!match) return null;
+  return {
+    direction: match[1].toLowerCase() === "customer" ? "external" : "internal",
+    message: { ...message, text: match[2].trim() },
   };
 }
 

@@ -4,6 +4,7 @@ import {
   normalizeSlackMessage,
   parseSlackEventCallback,
   slackEventForStorage,
+  slackTestOverride,
   verifySlackRequest,
 } from "../src/slack.js";
 
@@ -33,6 +34,47 @@ test("normalizes an ordinary Slack message", () => {
     userId: "U_EXTERNAL",
     text: "Production is unavailable",
   });
+});
+
+test("applies test direction only for an allowlisted user and channel", () => {
+  const parsed = parseSlackEventCallback({
+    ...callback,
+    event: { ...callback.event, text: "customer: Production is unavailable" },
+  });
+  assert.ok(parsed);
+  const message = normalizeSlackMessage(parsed);
+  assert.ok(message);
+  const config = {
+    enabled: true,
+    channelIds: new Set(["C_CONNECT"]),
+    userIds: new Set(["U_EXTERNAL"]),
+  };
+  assert.deepEqual(slackTestOverride(message, config), {
+    direction: "external",
+    message: { ...message, text: "Production is unavailable" },
+  });
+  assert.equal(
+    slackTestOverride({ ...message, userId: "U_SOMEONE_ELSE" }, config),
+    null,
+  );
+});
+
+test("supports a team reply from the same allowlisted test user", () => {
+  const parsed = parseSlackEventCallback({
+    ...callback,
+    event: { ...callback.event, text: "team: I own this investigation" },
+  });
+  assert.ok(parsed);
+  const message = normalizeSlackMessage(parsed);
+  assert.ok(message);
+  assert.equal(
+    slackTestOverride(message, {
+      enabled: true,
+      channelIds: new Set(["C_CONNECT"]),
+      userIds: new Set(["U_EXTERNAL"]),
+    })?.direction,
+    "internal",
+  );
 });
 
 test("stores only bounded message fields", () => {

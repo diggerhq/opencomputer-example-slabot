@@ -13,7 +13,11 @@ export default function Agent() {
     !Array.isArray(input.payload)
       ? (input.payload as Readonly<Record<string, unknown>>)
       : {};
-  if (payload.operation !== "scan-slack-slas") {
+  const trigger = input.text?.trim();
+  // Run-now schedule dispatches currently arrive without their configured
+  // payload, so the code-owned text marker is also accepted.
+  const recognizedTrigger = trigger === "scan-slack-slas";
+  if (payload.operation !== "scan-slack-slas" && !recognizedTrigger) {
     return "This agent runs only the scheduled Slack Connect SLA scan. Do not use tools.";
   }
 

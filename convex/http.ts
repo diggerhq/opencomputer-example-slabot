@@ -65,6 +65,32 @@ http.route({
 });
 
 http.route({
+  path: "/internal/sla/testing/seed-overdue",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (process.env.ENABLE_TEST_FIXTURES !== "true") {
+      return new Response("Not found", { status: 404 });
+    }
+    if (!serviceAuthorized(request)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const body = await jsonBody(request);
+    const scenario = body.scenario;
+    if (scenario !== "answered" && scenario !== "unanswered") {
+      return new Response("scenario must be answered or unanswered", {
+        status: 400,
+      });
+    }
+    return Response.json(
+      await ctx.runMutation(internal.fixtures.seedOverdue, {
+        fixtureId: String(body.fixtureId ?? ""),
+        scenario,
+      }),
+    );
+  }),
+});
+
+http.route({
   path: "/internal/sla/dismiss",
   method: "POST",
   handler: httpAction(async (ctx, request) => {

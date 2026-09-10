@@ -7,7 +7,7 @@ export default defineSchedule({
   enabled: ["production"],
   overlap: "skip",
   dispatch: {
-    text: "Scan Slack Connect conversations for breached response SLAs.",
+    text: "scan-slack-slas",
     payload: {
       operation: "scan-slack-slas",
       lookbackHours: 24,
