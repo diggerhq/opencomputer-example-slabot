@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "opencomputer deploy --watch",
+    "demo:deploy": "node scripts/clean-agent-runtime.mjs && convex dev --once && opencomputer deploy --alias development",
     "deploy": "opencomputer deploy",
     "session": "opencomputer session",
     "convex:dev": "convex dev",

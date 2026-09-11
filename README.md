@@ -83,11 +83,24 @@ npx --package @opencomputer/cli opencomputer secrets set \
   CONVEX_SERVICE_TOKEN --environment development --agent current
 ```
 
-Start the Development watcher:
+For iterative agent development, the optional watcher is:
 
 ```bash
 npm run dev
 ```
+
+After the one-time Convex, Slack, OpenComputer link, and secret configuration,
+deploy both Development components with one command:
+
+```bash
+npm run demo:deploy
+```
+
+The `scan-slack-slas` schedule is enabled in Development and runs every five
+minutes. **Run now** remains useful while recording because it avoids waiting
+for the next interval. Recurring scans create model sessions and therefore
+consume model usage; remove `development` from the schedule's `enabled` list
+when the demo is no longer active.
 
 ## Test your agent before connecting Slack
 
@@ -160,9 +173,14 @@ bypass the existing backoff window without running another agent session:
 npx convex run notifications:retryQueuedNow '{"limit":25}'
 ```
 
-Development displays the schedule as manual-only because recurrence is enabled
-only for Production. Use **Run now** to test with fixture Slack events before
-promoting:
+Development is the recommended target for the recorded demo. It exercises the
+real recurring schedule without requiring a second Slack app and Convex
+deployment.
+
+For a real Production promotion, first create and configure a separate
+Production Convex deployment and Slack installation, replace the literal
+Convex site origin with that Production `.convex.site` URL, and set the
+Production OpenComputer service secret. Then deploy:
 
 ```bash
 npm run deploy -- --alias production
