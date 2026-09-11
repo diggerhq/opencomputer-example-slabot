@@ -1,7 +1,5 @@
 import { defineTool } from "@opencomputer/agent";
-import { SLACK_ALERT_CHANNEL_ID } from "../config.js";
 import convex from "../connections/convex.js";
-import slack from "../connections/slack.js";
 
 type Candidate = {
   id: string;
@@ -12,6 +10,7 @@ type Candidate = {
   threadTs: string;
   openedAt: number;
   deadlineAt: number;
+  responseMinutes: number;
   evidence: Array<{
     messageTs: string;
     sentAt: number;
@@ -41,16 +40,6 @@ async function post<T>(
   return response.json() as Promise<T>;
 }
 
-async function stableClientMessageId(value: string): Promise<string> {
-  const bytes = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
-  ).slice(0, 16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0;
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
-  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
-}
-
 export const claimSlaCandidates = defineTool({
   name: "claim_sla_candidates",
   description:
@@ -61,7 +50,9 @@ export const claimSlaCandidates = defineTool({
     additionalProperties: false,
   },
   async run({ signal }) {
-    return post<{ candidates: Candidate[] }>(
+    const result = await post<{
+      candidates: Omit<Candidate, "responseMinutes">[];
+    }>(
       "/internal/sla/claim-due",
       {
         lookbackHours: 24,
@@ -70,6 +61,14 @@ export const claimSlaCandidates = defineTool({
       },
       signal,
     );
+    return {
+      candidates: result.candidates.map((candidate) => ({
+        ...candidate,
+        responseMinutes: Math.round(
+          (candidate.deadlineAt - candidate.openedAt) / 60_000,
+        ),
+      })),
+    };
   },
 });
 
@@ -100,10 +99,10 @@ export const dismissSlaCandidate = defineTool({
   },
 });
 
-export const publishSlaBreach = defineTool({
-  name: "publish_sla_breach",
+export const queueSlaBreach = defineTool({
+  name: "queue_sla_breach",
   description:
-    "Publish one internal Slack breach alert for a claimed candidate and record the durable outbox publication in Convex.",
+    "Durably queue one internal Slack breach alert in Convex for reliable delivery.",
   input: {
     type: "object",
     properties: {
@@ -123,47 +122,16 @@ export const publishSlaBreach = defineTool({
     additionalProperties: false,
   },
   async run({ input, signal }) {
-    if (!/^([CGD])[A-Z0-9]+$/.test(SLACK_ALERT_CHANNEL_ID)) {
-      throw new Error(
-        "Set SLACK_ALERT_CHANNEL_ID in the agent config before publishing alerts.",
-      );
-    }
-    const notificationKey = String(input.notificationKey);
-    const response = await slack.fetch("/api/chat.postMessage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({
-        channel: SLACK_ALERT_CHANNEL_ID,
-        text: `*Slack Connect response SLA breached*\n${String(input.summary)}`,
-        client_msg_id: await stableClientMessageId(notificationKey),
-        unfurl_links: false,
-        unfurl_media: false,
-      }),
-      signal,
-    });
-    const result = (await response.json()) as {
-      ok?: boolean;
-      error?: string;
-      channel?: string;
-      ts?: string;
-    };
-    if (!response.ok || !result.ok || !result.channel || !result.ts) {
-      throw new Error(
-        `Slack chat.postMessage failed: ${result.error ?? response.status}`,
-      );
-    }
-    const outboxItemId = `slack:${result.channel}:${result.ts}`;
-    await post(
-      "/internal/sla/mark-notified",
+    return post<{ status: string; notificationId: string }>(
+      "/internal/sla/queue-notification",
       {
         candidateId: String(input.candidateId),
         leaseToken: String(input.leaseToken),
-        notificationKey,
-        outboxItemId,
+        notificationKey: String(input.notificationKey),
+        summary: String(input.summary),
         rationale: String(input.rationale),
       },
       signal,
     );
-    return { status: "delivered", outboxItemId };
   },
 });

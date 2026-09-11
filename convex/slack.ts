@@ -16,7 +16,7 @@ import {
   candidateKey,
   deadlineAt,
   notificationKey,
-  POLICY_VERSION,
+  policyVersion,
 } from "../src/sla.js";
 
 export const ingest = internalMutation({
@@ -295,6 +295,7 @@ export const recordHydratedMessage = internalMutation({
         channelId: args.message.channelId,
         threadTs: args.message.threadTs,
         openedAt,
+        responseMinutes: args.responseMinutes,
       });
       await ctx.db.insert("slaCandidates", {
         candidateKey: key,
@@ -304,7 +305,7 @@ export const recordHydratedMessage = internalMutation({
         threadTs: args.message.threadTs,
         openedAt,
         deadlineAt: deadlineAt(openedAt, args.responseMinutes),
-        policyVersion: POLICY_VERSION,
+        policyVersion: policyVersion(args.responseMinutes),
         state: "pending",
         evidence: [evidence],
       });

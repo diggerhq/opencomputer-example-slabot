@@ -3,7 +3,7 @@ import { internalMutation } from "./_generated/server";
 import {
   deadlineAt,
   notificationKey,
-  POLICY_VERSION,
+  policyVersion,
   type SlaEvidence,
 } from "../src/sla.js";
 
@@ -20,7 +20,8 @@ export const seedOverdue = internalMutation({
 
     const openedAt = Date.now() - 65 * 60_000;
     const threadTs = String(openedAt / 1_000);
-    const key = `slack-sla:T_FIXTURE:C_FIXTURE:${fixtureId}:${POLICY_VERSION}`;
+    const fixturePolicy = policyVersion(60);
+    const key = `slack-sla:T_FIXTURE:C_FIXTURE:${fixtureId}:${fixturePolicy}`;
     const existing = await ctx.db
       .query("slaCandidates")
       .withIndex("by_candidate_key", (query) => query.eq("candidateKey", key))
@@ -60,7 +61,7 @@ export const seedOverdue = internalMutation({
       threadTs: `${threadTs}-${fixtureId}`,
       openedAt,
       deadlineAt: deadline,
-      policyVersion: POLICY_VERSION,
+      policyVersion: fixturePolicy,
       state: "pending",
       evidence,
     });

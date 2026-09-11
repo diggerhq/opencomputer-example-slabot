@@ -51,6 +51,7 @@ export default defineSchema({
     policyVersion: v.string(),
     state: v.union(
       v.literal("pending"),
+      v.literal("notification_pending"),
       v.literal("dismissed"),
       v.literal("notified"),
     ),
@@ -79,4 +80,27 @@ export default defineSchema({
     outboxItemId: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_candidate", ["candidateId"]),
+
+  slaNotifications: defineTable({
+    candidateId: v.id("slaCandidates"),
+    notificationKey: v.string(),
+    summary: v.string(),
+    rationale: v.string(),
+    state: v.union(
+      v.literal("queued"),
+      v.literal("delivering"),
+      v.literal("delivered"),
+    ),
+    attemptCount: v.number(),
+    nextAttemptAt: v.number(),
+    leaseToken: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    slackChannelId: v.optional(v.string()),
+    slackMessageTs: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_notification_key", ["notificationKey"])
+    .index("by_state_next_attempt", ["state", "nextAttemptAt"]),
 });

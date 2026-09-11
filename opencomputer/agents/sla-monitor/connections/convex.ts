@@ -1,8 +1,4 @@
-import {
-  bearer,
-  defineConnection,
-  useSecret,
-} from "@opencomputer/agent";
+import { bearer, defineConnection, useSecret } from "@opencomputer/agent";
 
 /**
  * Copy CONVEX_SITE_URL from the .env.local written by `npx convex dev`.

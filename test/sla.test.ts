@@ -5,6 +5,7 @@ import {
   candidateKey,
   deadlineAt,
   notificationKey,
+  stableSlackClientMessageId,
 } from "../src/sla.js";
 
 test("builds stable candidate and notification identities", () => {
@@ -13,6 +14,7 @@ test("builds stable candidate and notification identities", () => {
     channelId: "C1",
     threadTs: "10.1",
     openedAt: 10_000,
+    responseMinutes: 60,
   });
   assert.equal(key, "slack-sla:T1:C1:10.1:10000:wall-clock-60m-v1");
   assert.equal(notificationKey(key), `${key}:breach`);
@@ -21,6 +23,16 @@ test("builds stable candidate and notification identities", () => {
 test("calculates a wall-clock deadline", () => {
   assert.equal(deadlineAt(10_000, 60), 3_610_000);
   assert.throws(() => deadlineAt(10_000, 0), /positive integer/);
+});
+
+test("builds a stable Slack client message UUID", async () => {
+  const first = await stableSlackClientMessageId("candidate:breach");
+  const second = await stableSlackClientMessageId("candidate:breach");
+  assert.equal(first, second);
+  assert.match(
+    first,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
 });
 
 test("deduplicates and bounds chronological evidence", () => {

@@ -37,6 +37,7 @@ Configure these Convex environment variables:
 ```text
 SLACK_SIGNING_SECRET
 SLACK_BOT_TOKEN
+SLACK_ALERT_CHANNEL_ID=C0123
 SLACK_CONNECT_CHANNEL_IDS=C0123,C0456
 SLA_RESPONSE_MINUTES=60
 OPENCOMPUTER_SERVICE_TOKEN=<random service credential>
@@ -118,8 +119,8 @@ npm run session -- scan-slack-slas --agent opencomputer-example-slack-sla --keep
 The resulting session should call `claim_sla_candidates`, then
 `dismiss_sla_candidate`; the Convex candidate should become `dismissed`.
 
-After connecting the Development Slack channel and binding the `sla-alerts`
-destination, seed an unanswered request with a new fixture ID:
+After connecting the Development Slack channel and configuring the internal
+alert conversation, seed an unanswered request with a new fixture ID:
 
 ```bash
 curl --fail-with-body \
@@ -129,25 +130,24 @@ curl --fail-with-body \
   "$CONVEX_SITE_URL/internal/sla/testing/seed-overdue"
 ```
 
-Run the schedule again. This time the session should call
-`publish_sla_breach`, one message should appear in the configured internal
-Slack conversation, and Convex should record the candidate as `notified` with
-the OpenComputer outbox item ID. Re-running the schedule must not publish a
-second message.
+Run the schedule again. This time the session should call `queue_sla_breach`.
+Convex atomically moves the candidate to `notification_pending`, creates one
+durable notification, and schedules its Slack delivery. After delivery, one
+message should appear in the configured internal conversation and Convex
+should record the candidate as `notified`. Re-running the agent schedule must
+not create another notification.
 
-For breach delivery, put the internal conversation ID in
-`opencomputer/agents/sla-monitor/config.ts`. Give the Slack app `chat:write`,
-invite it to that conversation, and store its bot token in OpenComputer:
+For breach delivery, give the Slack app `chat:write`, invite it to the internal
+conversation, and set that conversation's ID as `SLACK_ALERT_CHANNEL_ID` in
+Convex. Convex uses the same installation-scoped `SLACK_BOT_TOKEN` for message
+hydration and fixed-destination delivery. OpenComputer receives neither the
+Slack credential nor permission to select the destination.
 
-```bash
-npx opencomputer secrets set SLACK_ALERT_BOT_TOKEN \
-  --environment development --agent current
-```
-
-The destination is code-pinned and the token is released only to Slack's
-`chat.postMessage` endpoint. This direct connection is the current shipped
-fallback while code-defined OpenComputer outboxes are not available in the
-managed runtime.
+Slack delivery and the following Convex state update cannot be one
+transaction. Delivery therefore uses a stable Slack `client_msg_id`, a
+five-minute delivery lease, exponential retry backoff, and a one-minute
+recovery job. This is at-least-once delivery with provider-assisted
+deduplication, not a claim of mathematically exact-once external effects.
 
 Development displays the schedule as manual-only because recurrence is enabled
 only for Production. Use **Run now** to test with fixture Slack events before
@@ -157,8 +157,9 @@ promoting:
 npm run deploy -- --alias production
 ```
 
-Repeat Convex, secret, Slack connection, and destination configuration for
-Production. Do not share credentials or operational state between environments.
+Repeat Convex, OpenComputer service-secret, Slack app, and destination
+configuration for Production. Do not share credentials or operational state
+between environments.
 
 ## Verify
 
@@ -174,11 +175,10 @@ Before using a real customer conversation, verify:
 3. non-Connect and unenrolled conversations are ignored;
 4. an external request followed by a substantive internal response is
    dismissed;
-5. an unanswered request past its deadline publishes one alert;
-6. retry after publication reuses the same outbox idempotency key; and
-7. the Convex decision records the accepted OpenComputer outbox item.
+5. an unanswered request past its deadline queues and delivers one alert;
+6. agent retries reuse one notification record and delivery retries reuse the
+   same Slack client message ID; and
+7. Convex records the Slack channel and message timestamp after delivery.
 
-The Slack app token is used by Convex to establish conversation and workspace
-identity. OpenComputer separately owns the credential used by its Slack outbox.
-Whether one Slack app can serve both roles cleanly is an end-to-end verification
-gate, not an assumption of this source example.
+The Slack app token is used only by Convex to establish conversation and
+workspace identity and to deliver alerts to the configured internal channel.

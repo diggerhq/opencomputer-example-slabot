@@ -109,7 +109,7 @@ http.route({
 });
 
 http.route({
-  path: "/internal/sla/mark-notified",
+  path: "/internal/sla/queue-notification",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     if (!serviceAuthorized(request)) {
@@ -117,11 +117,11 @@ http.route({
     }
     const body = await jsonBody(request);
     return Response.json(
-      await ctx.runMutation(internal.sla.markNotified, {
+      await ctx.runMutation(internal.notifications.queue, {
         candidateId: String(body.candidateId ?? ""),
         leaseToken: String(body.leaseToken ?? ""),
         notificationKey: String(body.notificationKey ?? ""),
-        outboxItemId: String(body.outboxItemId ?? ""),
+        summary: String(body.summary ?? ""),
         rationale: String(body.rationale ?? ""),
       }),
     );
