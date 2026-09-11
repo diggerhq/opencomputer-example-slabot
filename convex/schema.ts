@@ -86,6 +86,11 @@ export default defineSchema({
     notificationKey: v.string(),
     summary: v.string(),
     rationale: v.string(),
+    sourceChannelId: v.optional(v.string()),
+    sourceChannelName: v.optional(v.string()),
+    sourceThreadTs: v.optional(v.string()),
+    openedAt: v.optional(v.number()),
+    deadlineAt: v.optional(v.number()),
     state: v.union(
       v.literal("queued"),
       v.literal("delivering"),

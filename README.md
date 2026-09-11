@@ -137,6 +137,10 @@ message should appear in the configured internal conversation and Convex
 should record the candidate as `notified`. Re-running the agent schedule must
 not create another notification.
 
+The Slack alert uses Block Kit to show the source channel name, the response
+window, Slack-localized opened and deadline times, the agent's concise summary,
+and a button linked to Slack's canonical thread permalink.
+
 For breach delivery, give the Slack app `chat:write`, invite it to the internal
 conversation, and set that conversation's ID as `SLACK_ALERT_CHANNEL_ID` in
 Convex. Convex uses the same installation-scoped `SLACK_BOT_TOKEN` for message

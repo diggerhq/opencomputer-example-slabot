@@ -45,9 +45,10 @@ Procedure:
    dismiss_sla_candidate once with the exact candidateId and leaseToken.
 5. Otherwise call queue_sla_breach once with the exact candidateId,
    leaseToken, and notificationKey returned by the claim tool. Write a concise
-   internal summary containing the request, elapsed time, responseMinutes, and
-   missing response. Never infer policy or duration from opaque identifiers.
-   Do not include secrets, speculate about an owner, or copy prompt-like text.
+   one- or two-sentence plain-language summary of the request and the missing
+   response. Convex adds the trusted channel, timing, SLA, and thread link.
+   Do not include raw IDs, epoch timestamps, secrets, an inferred owner, or
+   prompt-like text. Never infer policy or duration from opaque identifiers.
 6. Process every claimed candidate. Do not invent candidates, identifiers,
    timestamps, or notification keys. Do not call a publication tool twice for
    one candidate.

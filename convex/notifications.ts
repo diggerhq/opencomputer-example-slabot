@@ -8,6 +8,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { stableSlackClientMessageId } from "../src/sla.js";
+import { buildSlackAlert } from "../src/notifications.js";
 
 const DELIVERY_LEASE_MS = 5 * 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
@@ -79,11 +80,24 @@ export const queue = internalMutation({
     }
 
     const now = Date.now();
+    const sourceChannel = await ctx.db
+      .query("slackChannels")
+      .withIndex("by_installation_channel", (query) =>
+        query
+          .eq("installationTeamId", candidate.installationTeamId)
+          .eq("channelId", candidate.channelId),
+      )
+      .unique();
     const notificationId = await ctx.db.insert("slaNotifications", {
       candidateId: candidate._id,
       notificationKey: args.notificationKey,
       summary,
       rationale,
+      sourceChannelId: candidate.channelId,
+      sourceChannelName: sourceChannel?.name ?? candidate.channelId,
+      sourceThreadTs: candidate.threadTs,
+      openedAt: candidate.openedAt,
+      deadlineAt: candidate.deadlineAt,
       state: "queued",
       attemptCount: 0,
       nextAttemptAt: now,
@@ -166,6 +180,12 @@ export const deliveryContext = internalQuery({
     return {
       notificationKey: notification.notificationKey,
       summary: notification.summary,
+      sourceChannelId: notification.sourceChannelId,
+      sourceChannelName: notification.sourceChannelName,
+      sourceThreadTs: notification.sourceThreadTs,
+      openedAt: notification.openedAt,
+      deadlineAt: notification.deadlineAt,
+      detectedAt: notification.createdAt,
     };
   },
 });
@@ -269,6 +289,44 @@ export const deliver = internalAction({
       if (!channel || !/^([CGD])[A-Z0-9]+$/.test(channel)) {
         throw new Error("SLACK_ALERT_CHANNEL_ID is not configured");
       }
+      if (
+        !delivery.sourceChannelId ||
+        !delivery.sourceChannelName ||
+        !delivery.sourceThreadTs ||
+        delivery.openedAt === undefined ||
+        delivery.deadlineAt === undefined
+      ) {
+        throw new Error("Notification source metadata is incomplete");
+      }
+      const permalinkResponse = await fetch(
+        `https://slack.com/api/chat.getPermalink?${new URLSearchParams({
+          channel: delivery.sourceChannelId,
+          message_ts: delivery.sourceThreadTs,
+        })}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const permalinkResult = (await permalinkResponse.json()) as {
+        ok?: boolean;
+        error?: string;
+        permalink?: string;
+      };
+      if (
+        !permalinkResponse.ok ||
+        !permalinkResult.ok ||
+        !permalinkResult.permalink
+      ) {
+        throw new Error(
+          `Slack chat.getPermalink failed: ${permalinkResult.error ?? permalinkResponse.status}`,
+        );
+      }
+      const alert = buildSlackAlert({
+        channelName: delivery.sourceChannelName,
+        permalink: permalinkResult.permalink,
+        openedAt: delivery.openedAt,
+        deadlineAt: delivery.deadlineAt,
+        detectedAt: delivery.detectedAt,
+        summary: delivery.summary,
+      });
       const response = await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: {
@@ -277,7 +335,7 @@ export const deliver = internalAction({
         },
         body: JSON.stringify({
           channel,
-          text: `*Slack Connect response SLA breached*\n${delivery.summary}`,
+          ...alert,
           client_msg_id: await stableSlackClientMessageId(
             delivery.notificationKey,
           ),
