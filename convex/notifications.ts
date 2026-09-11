@@ -129,6 +129,24 @@ export const recover = internalMutation({
   },
 });
 
+export const retryQueuedNow = internalMutation({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(25, Math.floor(args.limit)));
+    const notifications = await ctx.db
+      .query("slaNotifications")
+      .withIndex("by_state_next_attempt", (query) =>
+        query.eq("state", "queued"),
+      )
+      .take(limit);
+    const now = Date.now();
+    for (const notification of notifications) {
+      await dispatch(ctx, notification, now);
+    }
+    return { scheduled: notifications.length };
+  },
+});
+
 export const deliveryContext = internalQuery({
   args: {
     notificationId: v.id("slaNotifications"),

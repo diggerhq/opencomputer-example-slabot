@@ -149,6 +149,13 @@ five-minute delivery lease, exponential retry backoff, and a one-minute
 recovery job. This is at-least-once delivery with provider-assisted
 deduplication, not a claim of mathematically exact-once external effects.
 
+After correcting a failed Development delivery configuration, an operator can
+bypass the existing backoff window without running another agent session:
+
+```bash
+npx convex run notifications:retryQueuedNow '{"limit":25}'
+```
+
 Development displays the schedule as manual-only because recurrence is enabled
 only for Production. Use **Run now** to test with fixture Slack events before
 promoting:
